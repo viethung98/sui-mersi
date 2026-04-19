@@ -1,0 +1,163 @@
+---
+title: Deployment
+description: Production deployment checklist, startup sequence, health endpoints, and logging for all three services.
+---
+
+
+## backend/ (Bun + Hono)
+
+### Pre-Deployment Checklist
+
+<Accordions>
+  <Accordion title="Environment variables">
+    All required variables must be set. Validate locally:
+
+    ```bash
+    cd backend && bun run start   # fails fast with a clear error if any required var is missing
+    ```
+
+    See the full [Environment Reference](/deployment/environment).
+  </Accordion>
+
+  <Accordion title="Database migrations">
+    Run migrations before deploying to production:
+
+    ```bash
+    cd backend && bunx drizzle-kit migrate
+    ```
+
+    Ensure `DATABASE_URL_DIRECT` is set if using Neon's pooler (PgBouncer) — the migration client needs a direct connection.
+  </Accordion>
+
+  <Accordion title="Crossmint webhook URL">
+    Set the webhook URL in your Crossmint dashboard:
+    ```
+    https://your-domain.com/api/webhooks/crossmint
+    ```
+    And configure `CROSSMINT_WEBHOOK_SECRET` in your env.
+  </Accordion>
+
+  <Accordion title="NODE_ENV=production">
+    Set `NODE_ENV=production` to:
+    - Disable dev routes (`/api/dev/*`)
+    - Use raw JSON stdout logging (no pino-pretty)
+    - Enable production-mode Pino → BetterStack forwarding
+  </Accordion>
+</Accordions>
+
+### Startup Sequence
+
+On each server start, `backend/` runs:
+
+1. Validates all environment variables (fails fast on missing required vars)
+2. Registers middleware and routes
+3. Starts the Bun HTTP server on `PORT` (default 3000)
+4. If `SUI_CONTRACT_ADDRESS` is set: starts the on-chain event indexer
+
+### Health Endpoints
+
+| Path | Purpose |
+|---|---|
+| `GET /health` | Liveness probe — returns `200` if the process is alive |
+
+Use `/health` for load balancer health checks and container liveness probes.
+
+### Logging
+
+The backend uses structured JSON logging (Pino) with optional BetterStack forwarding.
+
+**Log format (production):**
+```json
+{
+  "level": 30,
+  "time": "2026-04-19T10:00:00.000Z",
+  "service": "mersi",
+  "method": "POST",
+  "path": "/api/chat",
+  "status": 200,
+  "ms": 1423,
+  "msg": "POST /api/chat 200 1423ms"
+}
+```
+
+**BetterStack forwarding** (optional):
+```env
+BETTERSTACK_SOURCE_TOKEN=your-token
+BETTERSTACK_INGESTING_HOST=s2380734.eu-fsn-3.betterstackdata.com
+```
+
+### Docker
+
+```dockerfile
+FROM oven/bun:1-alpine
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY . .
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:3000/health || exit 1
+CMD ["bun", "run", "start"]
+```
+
+### Idle Timeout
+
+The Bun server is configured with a **120-second idle timeout**:
+
+```typescript
+Bun.serve({ idleTimeout: 120, ... })
+```
+
+This accommodates LLM streaming responses (can run 10–30 seconds), scraping API calls, and Sui RPC round-trips. Ensure your load balancer or proxy allows at least 120 seconds before timing out.
+
+---
+
+## frontend/ (Next.js)
+
+### Production Build
+
+```bash
+cd frontend && bun run build && bun run start
+```
+
+### Environment Variables
+
+```env
+NEXT_PUBLIC_CROSSMINT_API_KEY=pk_production_...
+```
+
+The Next.js app proxies `/api/*` to the backend. Ensure the proxy target URL in `next.config.ts` points to your production `backend/` instance.
+
+---
+
+## scraping/ (NestJS)
+
+### Production Start
+
+```bash
+cd scraping
+npm run build
+npm run start:prod
+```
+
+### Environment Variables
+
+```env
+NODE_ENV=production
+PORT=3001
+APIFY_TOKEN=apify_api_...
+REDIS_HOST=your-redis-host
+REDIS_PORT=6379
+SUI_NETWORK=mainnet
+```
+
+See [Scraping Environment Reference](/services/environment) for the full list.
+
+---
+
+## Railway (Recommended)
+
+1. Connect your GitHub repository
+2. Create three services: `backend`, `frontend`, `scraping`
+3. Set all environment variables in each service's Railway dashboard
+4. Railway auto-detects Bun for `backend/` and runs `bun run start`
+5. Railway detects Node.js for `scraping/` — set start command to `npm run start:prod`

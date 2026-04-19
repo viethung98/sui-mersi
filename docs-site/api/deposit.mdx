@@ -1,0 +1,103 @@
+---
+title: Deposit
+description: Verify a Sui USDC deposit and fund the user's Crossmint EVM wallet.
+---
+
+<Callout type="info">
+Requires a valid `crossmint-jwt` cookie. Onboarding completion is **not** required — users can fund their wallet before finishing onboarding.
+</Callout>
+
+## POST /api/deposit/verify
+
+Verifies that a Sui blockchain transaction deposited USDC into the user's wallet, then credits the user's Crossmint EVM wallet with the equivalent USDMX amount. Replay attacks are prevented by the unique constraint on `orders.tx_hash` — the same `txDigest` cannot be processed twice.
+
+**Auth required:** Yes (JWT cookie)
+
+### Request Body
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `txDigest` | string | Yes | Sui transaction digest of the deposit transaction |
+| `nonce` | string | Yes | Unique nonce embedded in the transaction — must match the `PaymentReceipt` event |
+| `amount` | string | Yes | Amount in MIST units (1 USDC = 1,000,000 MIST) |
+| `coinType` | string | Yes | Sui coin type, e.g. `0xa1ec7fc00a...::usdc::USDC` |
+
+```json
+{
+  "txDigest": "0xabc123def456sui_tx_hash",
+  "nonce": "deposit_123_1745000000000",
+  "amount": "1000000",
+  "coinType": "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC"
+}
+```
+
+<Callout type="info">
+`amount` is in MIST, not USDC. 1 USDC = 1,000,000 MIST. The frontend should pass the raw MIST value from the `@mysten/payment-kit` SDK.
+</Callout>
+
+### Response `200 OK`
+
+```json
+{
+  "success": true,
+  "txDigest": "0xabc123def456sui_tx_hash",
+  "usdcAmount": 1,
+  "usdmxAmount": "1.00"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `success` | boolean | `true` if deposit was verified and wallet funded |
+| `txDigest` | string | The Sui transaction digest echoed back |
+| `usdcAmount` | number | USDC amount received (e.g. `1` = 1 USDC) |
+| `usdmxAmount` | string | USDMX amount credited to Crossmint EVM wallet |
+
+### Errors
+
+| Status | Code / Message | Cause |
+|---|---|---|
+| 400 | `Wallet not provisioned` | User has no Sui or EVM wallet yet |
+| 400 | `Invalid coin type` | `coinType` is not the USDC coin type |
+| 400 | `No PaymentReceipt event found` | Transaction did not emit the expected on-chain event |
+| 400 | `Nonce mismatch` | Nonce in request doesn't match the on-chain event |
+| 400 | `Amount mismatch` | Amount in request doesn't match the on-chain event |
+| 400 | `Receiver mismatch` | Recipient in on-chain event doesn't match user's wallet |
+| 409 | `Deposit already processed` | `txDigest` was already used (unique constraint on `orders.tx_hash`) |
+| 500 | `Faucet failed: ...` | Crossmint EVM wallet funding failed |
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/deposit/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "txDigest": "0xabc123...",
+    "nonce": "deposit_123_1745000000000",
+    "amount": "1000000",
+    "coinType": "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC"
+  }'
+```
+
+---
+
+## Deposit Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client (Mersi)
+    participant Sui as Sui Network
+    participant API as backend/ API
+    participant CM as Crossmint
+
+    C->>Sui: Send USDC with @mysten/payment-kit (includes nonce)
+    Sui-->>C: txDigest
+
+    C->>API: POST /api/deposit/verify { txDigest, nonce, amount, coinType }
+    API->>Sui: Fetch transaction events (getPaymentReceipt)
+    Sui-->>API: PaymentReceipt { nonce, amount, coin_type, receiver }
+    API->>API: Validate fields; INSERT orders with tx_hash (prevents replay)
+    API->>CM: fundCrossmintWallet(evmAddress, usdcAmount, "base-sepolia")
+    CM-->>API: { balances: { total: "1.00" } }
+    API-->>C: { success: true, usdcAmount: 1, usdmxAmount: "1.00" }
+```

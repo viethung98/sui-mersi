@@ -1,0 +1,170 @@
+---
+title: Chat
+description: Streaming ReAct agent endpoint — product search, cart management, and checkout tools.
+---
+
+<Callout type="warn">
+Requires a valid `crossmint-jwt` cookie and completed onboarding (`onboardingStep === 3`). Rate-limited at 30 req/min per user.
+</Callout>
+
+## POST /api/chat
+
+Send messages to the AI shopping assistant. Returns a **Server-Sent Events (SSE)** stream in Vercel AI SDK `UIMessageStream` format.
+
+**Auth required:** Yes + onboarding complete
+
+### Request Body
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `messages` | array | Yes | At least one message (see format below). Must have `role` and `content`. |
+| `sessionId` | UUID | No | Existing session to continue. Omit to auto-create a new session. |
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "Find me a blue denim jacket under $100" }
+  ],
+  "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+The `messages` array accepts the Vercel AI SDK `UIMessage` format. The last message's content is the new user turn; previous messages form the context.
+
+### Response `200 OK` — `text/event-stream`
+
+The response is a streaming SSE body in Vercel AI SDK `UIMessageStream` format. The `X-Session-Id` response header contains the session UUID (useful when no `sessionId` was passed).
+
+```
+data: {"type":"text-delta","textDelta":"Here are some "}
+data: {"type":"text-delta","textDelta":"options I found:"}
+data: {"type":"tool-call","toolCallId":"tc_1","toolName":"searchProducts","args":{"query":"blue denim jacket"}}
+data: {"type":"tool-result","toolCallId":"tc_1","toolName":"searchProducts","result":{"products":[...]}}
+data: {"type":"finish","finishReason":"stop"}
+```
+
+Response headers include:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `text/event-stream` |
+| `X-Session-Id` | UUID of the chat session |
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | `messages` is empty or malformed |
+| 401 | `UNAUTHORIZED` | Missing or invalid JWT |
+| 403 | `ONBOARDING_INCOMPLETE` | Onboarding not finished |
+| 403 | `SessionOwnershipError` | `sessionId` belongs to a different user |
+| 404 | `SessionNotFound` | `sessionId` does not exist |
+
+### curl Example
+
+```bash
+curl -b cookies.txt \
+  -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "messages": [
+      { "role": "user", "content": "Show me running shoes in size 10 under $120" }
+    ]
+  }'
+```
+
+---
+
+## Agent Tools
+
+The agent runs up to 5 reasoning steps (`stopWhen: stepCountIs(5)`). Available tools:
+
+<Accordions>
+<Accordion title="searchProducts — find products matching a query">
+Calls the product service (mock or live Apify scraping) to return a list of matching products.
+
+Input:
+```typescript
+{
+  query: string        // natural-language search query
+  maxPrice?: number    // optional price ceiling in USD cents
+  category?: string    // optional category hint
+}
+```
+
+Output: array of products with `id`, `name`, `price`, `currency`, `imageUrl`, `marketplace`, `productUrl`, `rating`, `reviewCount`.
+</Accordion>
+
+<Accordion title="getProductDetails — fetch details for a specific product">
+Retrieves enriched data for one product including images, sizes, and description.
+
+Input:
+```typescript
+{
+  productId: string   // product ID from searchProducts
+  retailer: string    // e.g. "amazon"
+}
+```
+
+Output: full product object.
+</Accordion>
+
+<Accordion title="addToCart — add a product variant to the user's cart">
+Adds one item to the user's cart (Redis-backed or Sui on-chain depending on `CART_SERVICE`).
+
+Input:
+```typescript
+{
+  productId: string
+  productName: string
+  price: number        // in USD cents
+  image: string        // URL
+  size?: string        // default: "Default"
+  color?: string       // default: "Default"
+  productUrl: string
+  retailer: string
+}
+```
+
+Output: `{ success: true, cartItemId: "uuid" }` or an error string.
+</Accordion>
+
+<Accordion title="removeFromCart — remove an item from the cart">
+Removes a cart item by its backend UUID.
+
+Input:
+```typescript
+{ cartItemId: string }
+```
+
+Output: `{ success: true }` or an error string.
+</Accordion>
+
+<Accordion title="listCartItems — list the user's current cart">
+Returns all non-deleted cart items for the current user.
+
+Output: array of cart item objects (id, productName, price, size, color, retailer).
+</Accordion>
+
+<Accordion title="checkout — initiate purchase for a cart item">
+Creates a Crossmint order and returns a serialized transaction for the user to approve.
+
+Input:
+```typescript
+{ cartItemId: string }
+```
+
+Output: `{ orderId, crossmintOrderId, phase, serializedTransaction, walletAddress }`.
+</Accordion>
+</Accordions>
+
+---
+
+## Session Persistence
+
+- If `sessionId` is omitted, a new `chat_sessions` row is created and its UUID is returned in `X-Session-Id`.
+- All messages (user + assistant, including tool calls and results) are persisted as `chat_messages` rows with `parts` stored as JSONB.
+- On the first exchange, the server auto-generates a session title via a second LLM call.
+- User shopping preferences stored in MemWal are injected into the system prompt automatically.
+- Retrieve and continue sessions via the [Sessions API](/api/sessions).

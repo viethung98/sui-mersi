@@ -1,0 +1,92 @@
+---
+title: Webhooks
+description: Crossmint Svix webhook receiver — order status updates and on-chain checkout triggers.
+---
+
+## POST /api/webhooks/crossmint
+
+Receives signed webhook events from Crossmint via [Svix](https://svix.com). This endpoint is **public** but verifies the Svix HMAC signature on every request.
+
+Configure the webhook URL in your Crossmint dashboard:
+```
+https://your-domain.com/api/webhooks/crossmint
+```
+
+Set `CROSSMINT_WEBHOOK_SECRET` in `backend/` to the secret shown in the dashboard.
+
+## Signature Verification
+
+Every request is verified using the Svix signature scheme:
+
+1. Reconstruct the signed content: `{svix-id}.{svix-timestamp}.{raw-body}`
+2. HMAC-SHA256 with the base64-decoded webhook secret
+3. Compare against all signatures in `svix-signature` (timing-safe)
+4. Reject if timestamp is more than 5 minutes old
+
+**Headers checked**
+
+| Header | Description |
+|---|---|
+| `svix-id` | Unique event ID |
+| `svix-timestamp` | Unix timestamp of event |
+| `svix-signature` | One or more `v1,<base64>` signatures (space-separated) |
+
+Returns `401 UNAUTHORIZED` if verification fails. Returns `503 WEBHOOK_NOT_CONFIGURED` if `CROSSMINT_WEBHOOK_SECRET` is not set.
+
+## Supported Event Types
+
+| Event Type | Local Status | On-Chain Checkout |
+|---|---|---|
+| `orders.payment.succeeded` | `payment_confirmed` | Triggered |
+| `orders.delivery.initiated` | `in_progress` | — |
+| `orders.delivery.completed` | `delivered` | Triggered (idempotent) |
+| `orders.delivery.failed` | `cancelled` | — |
+| `orders.payment.failed` | `cancelled` | — |
+
+## What Happens on Each Event
+
+**Payment events** (`payment.succeeded`, `payment.failed`):
+- Updates `orders.status` in the database
+- Saves `payment.received.txId` to `orders.payment_hash`
+- Saves `quote.totalPrice.amount` to `orders.amount_usdc`
+
+**Delivery events** (`delivery.initiated`, `delivery.completed`, `delivery.failed`):
+- Updates `orders.status`
+
+**Cart item visibility**:
+- `payment.succeeded`, `delivery.initiated`, `delivery.completed` — soft-deletes the associated cart item (`cart_items.deleted_at = now()`)
+- `payment.failed`, `delivery.failed` — restores the cart item (`deleted_at = null`)
+
+**On-chain checkout** (when `CART_SERVICE=onchain` and `SUI_CONTRACT_ADDRESS` is set):
+- Triggered on `payment.succeeded` and `delivery.completed`
+- Skipped if `orders.tx_hash` is already set (idempotency guard)
+- Submits a Sui PTB calling `checkout` on the cart contract
+- Saves the resulting Sui digest to `orders.tx_hash`
+
+## Event Payload Shape
+
+```json
+{
+  "type": "orders.payment.succeeded",
+  "actionId": "crossmint-order-uuid",
+  "data": {
+    "orderId": "crossmint-order-uuid",
+    "payment": {
+      "received": {
+        "txId": "0xevm-payment-tx",
+        "amount": "69.99"
+      }
+    },
+    "quote": {
+      "totalPrice": {
+        "amount": "69.99",
+        "currency": "usdxm"
+      }
+    }
+  }
+}
+```
+
+## Response
+
+Always returns `200 OK` with `{ "ok": true }` after processing, even for unrecognized event types. This prevents Svix from retrying events that the server successfully received.

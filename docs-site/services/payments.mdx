@@ -1,0 +1,135 @@
+---
+title: Payments & Verification
+description: Sui transaction verification and deposit forwarding for the scraping service.
+---
+
+
+## Overview
+
+The scraping service verifies **Sui on-chain transactions** submitted by users and forwards a confirmation event to the `backend/` deposit webhook. There is no multi-step payment request / webhook cycle — the client simply calls `POST /api/payment/verify` after broadcasting a Sui transaction.
+
+```mermaid
+graph LR
+    Client["Client"]
+    Verify["POST /api/payment/verify"]
+    Redis["Redis lock\n(idempotency)"]
+    Sui["Sui RPC\n(SuiVerificationService)"]
+    Backend["backend/\nPOST /api/deposit/:userId/:address/confirm"]
+
+    Client -->|txHash + userId + receiver + amount| Verify
+    Verify -->|acquire lock:tx_verify:{txHash}| Redis
+    Verify -->|getTransaction| Sui
+    Sui -->|balanceChanges| Verify
+    Verify -->|X-Webhook-Secret| Backend
+```
+
+### Idempotency
+
+A Redis lock on `lock:tx_verify:{txHash}` (60 s TTL) prevents concurrent duplicate calls. After a successful confirmation the hash is marked as processed for **24 hours** — re-submitting the same hash within that window returns immediately without re-querying the RPC or re-calling the backend.
+
+## Sui Verification Detail
+
+`SuiVerificationService` calls `getTransaction` on the configured Sui RPC endpoint and inspects `balanceChanges`:
+
+1. Check that `address === merchantAddress` and `amount >= SUI_PAYMENT_AMOUNT_MIST`.
+2. Persist a `TransactionEntity` (status: `PENDING` → `SUCCESS` / `FAILED`).
+3. On success, `POST {COMAGENT_BASE_URL}/api/deposit/{userId}/{address}/confirm` with:
+
+```json
+{
+  "amount": "<verified amount in MIST>",
+  "transactionHash": "<txHash>",
+  "network": "sui",
+  "currency": "<coin type>"
+}
+```
+
+The downstream call includes the header `X-Webhook-Secret: {DEPOSIT_WEBHOOK_SECRET}`.
+
+## API Reference
+
+### `POST /api/payment/verify`
+
+Verify a Sui transaction and forward the deposit confirmation to `backend/`.
+
+#### Request Body
+
+<TypeTable
+  type={{
+    txHash: {
+      description: 'Sui transaction digest to verify (max 200 chars)',
+      type: 'string',
+      default: '—',
+    },
+    userId: {
+      description: 'ID of the depositing user',
+      type: 'string',
+      default: '—',
+    },
+    receiver: {
+      description: 'Sui address that received the payment (merchant address)',
+      type: 'string',
+      default: '—',
+    },
+    amount: {
+      description: 'Expected payment amount in MIST',
+      type: 'string',
+      default: '—',
+    },
+  }}
+/>
+
+#### Response
+
+```json
+{
+  "data": {
+    "success": true,
+    "transactionHash": "HqZ3...",
+    "amount": "1000000000",
+    "network": "sui"
+  },
+  "status": "OK",
+  "code": 200
+}
+```
+
+If the same `txHash` has already been processed, the endpoint returns the existing record without re-querying the RPC.
+
+---
+
+### `GET /api/payment/transaction/:txHash`
+
+Retrieve stored details of a previously verified transaction by its digest. The hash must be alphanumeric (max 200 chars).
+
+#### Response
+
+```json
+{
+  "data": {
+    "txHash": "HqZ3...",
+    "amount": "1000000000",
+    "receiver": "0x...",
+    "status": "SUCCESS",
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+### `GET /api/payment/:paymentId`
+
+Get the current status of a payment record by its UUID.
+
+## Sui Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUI_NETWORK` | `testnet` | Network name passed to the Sui client |
+| `SUI_RPC_URL` | `https://fullnode.testnet.sui.io:443` | Sui RPC endpoint |
+| `SUI_MERCHANT_ADDRESS` | `""` | Address that receives deposits. Required — omitting disables verification. |
+| `SUI_PAYMENT_AMOUNT_MIST` | `1000000000` (1 SUI) | Minimum accepted payment in MIST |
+| `SUI_COIN_TYPE` | `0x2::sui::SUI` | Coin type accepted for payments |
+
+See the full [Environment Reference](/services/environment) for all scraping service variables.

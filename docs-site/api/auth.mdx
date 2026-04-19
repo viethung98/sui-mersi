@@ -1,0 +1,123 @@
+---
+title: Auth
+description: Session setup, user profile, and logout endpoints for the backend API.
+---
+
+<Callout type="info">
+`POST /api/auth/session` and `POST /api/auth/logout` are public — no existing session required. `GET /api/auth/profile` requires a valid `crossmint-jwt` cookie.
+</Callout>
+
+## POST /api/auth/session
+
+Exchange a Crossmint JWT for HttpOnly session cookies. Call this immediately after the user completes Crossmint OTP login on the frontend.
+
+**Auth required:** No
+
+### Request Body
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `jwt` | string | Yes | Crossmint access token |
+| `refreshToken` | string | No | Crossmint refresh token |
+| `email` | string (email) | No | User email — stored as a cookie |
+
+```json
+{
+  "jwt": "eyJhbGci...",
+  "refreshToken": "rt_...",
+  "email": "user@example.com"
+}
+```
+
+### Response `200 OK`
+
+```json
+{ "success": true }
+```
+
+Sets up to three `HttpOnly` cookies:
+
+| Cookie | Set when |
+|---|---|
+| `crossmint-jwt` | Always — on every valid call |
+| `crossmint-refresh-token` | Only when `refreshToken` is provided and accepted by Crossmint |
+| `user-email` | Only when `email` is provided |
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 401 | `UNAUTHORIZED` | JWT is invalid or malformed |
+
+### curl Example
+
+```bash
+curl -c cookies.txt -X POST http://localhost:3000/api/auth/session \
+  -H "Content-Type: application/json" \
+  -d '{"jwt":"eyJhbGci...","refreshToken":"rt_...","email":"user@example.com"}'
+```
+
+---
+
+## GET /api/auth/profile
+
+Return the authenticated user's profile from the database.
+
+**Auth required:** Yes (`crossmint-jwt` cookie)
+
+### Response `200 OK`
+
+```json
+{
+  "userId": "f0e1d2c3-b4a5-6789-0abc-def123456789",
+  "email": "user@example.com",
+  "walletAddress": "0xDeAdBeEf00000000000000000000000000000001",
+  "walletStatus": "active",
+  "onboardingStep": 3,
+  "evmAddress": "0xABC123DEF4567890000000000000000000000000"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `userId` | UUID | Internal user ID |
+| `email` | string | Crossmint account email |
+| `walletAddress` | string (66 hex chars) or null | Sui wallet address — null if not yet provisioned |
+| `walletStatus` | `none` / `pending` / `active` / `failed` | Crossmint wallet provisioning state |
+| `onboardingStep` | 0–3 | Number of onboarding steps completed |
+| `evmAddress` | string (42 hex chars) or null | EVM wallet address for Crossmint payments |
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 401 | `UNAUTHORIZED` | Missing or invalid JWT cookie |
+| 404 | `USER_NOT_FOUND` | JWT is valid but no matching user record |
+
+### curl Example
+
+```bash
+curl -b cookies.txt http://localhost:3000/api/auth/profile
+```
+
+---
+
+## POST /api/auth/logout
+
+Clear all session cookies. Public and idempotent — safe to call even when the session is already expired or missing.
+
+**Auth required:** No
+
+### Response `200 OK`
+
+```json
+{ "success": true }
+```
+
+Deletes `crossmint-jwt`, `crossmint-refresh-token`, and `user-email` cookies.
+
+### curl Example
+
+```bash
+curl -b cookies.txt -c cookies.txt -X POST http://localhost:3000/api/auth/logout
+```

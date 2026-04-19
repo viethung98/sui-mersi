@@ -1,0 +1,216 @@
+---
+title: Cart
+description: Add, list, and remove cart items. Supports PostgreSQL/Redis and Sui on-chain modes.
+---
+
+<Callout type="warn">
+Requires a valid `crossmint-jwt` cookie and completed onboarding. Rate-limited at 30 req/min per user.
+</Callout>
+
+The cart backend is selected by the `CART_SERVICE` environment variable (set in `backend/`):
+- `db` (default) — items stored in `cart_items` table in PostgreSQL, with Redis cache layer
+- `onchain` — items stored in a Sui Move smart contract; requires `SUI_CONTRACT_ADDRESS`, `SUI_CART_REGISTRY_ID`, and `SUI_RELAYER_PRIVATE_KEY`
+
+Cart items are soft-deleted (`deleted_at`) so the on-chain event indexer can process events idempotently.
+
+## GET /api/cart
+
+List the authenticated user's active (non-deleted) cart items.
+
+**Auth required:** Yes + onboarding complete
+
+### Response `200 OK`
+
+```json
+{
+  "items": [
+    {
+      "id": "c1d2e3f4-a5b6-7890-cdef-123456789012",
+      "userId": "f0e1d2c3-b4a5-6789-0abc-def123456789",
+      "productId": "B0CXYZ1234",
+      "productName": "Nike Air Max 90",
+      "price": 14999,
+      "image": "https://example.com/shoe.jpg",
+      "size": "10",
+      "color": "Black",
+      "productUrl": "https://amazon.com/dp/B0CXYZ1234",
+      "retailer": "Amazon",
+      "createdAt": "2026-04-19T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `price` | integer | In USD cents (e.g. `14999` = $149.99) |
+| `size` | string | Defaults to `"Default"` if not specified on add |
+| `color` | string | Defaults to `"Default"` if not specified on add |
+
+### curl Example
+
+```bash
+curl -b cookies.txt http://localhost:3000/api/cart
+```
+
+---
+
+## POST /api/cart
+
+Add a product variant to the cart. Max 10 items per user. The same `(userId, productId, size, color)` combination cannot be added twice (returns 409).
+
+**Auth required:** Yes + onboarding complete
+
+### Request Body
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `productId` | string | Yes | 1–255 chars |
+| `productName` | string | Yes | 1–500 chars |
+| `price` | integer | Yes | positive, in USD cents |
+| `image` | string (URL) | Yes | |
+| `size` | string | No | max 50 chars; defaults to `"Default"` |
+| `color` | string | No | max 50 chars; defaults to `"Default"` |
+| `productUrl` | string (URL) | Yes | |
+| `retailer` | string | Yes | 1–255 chars |
+
+```json
+{
+  "productId": "B0CXYZ1234",
+  "productName": "Nike Air Max 90",
+  "price": 14999,
+  "image": "https://example.com/shoe.jpg",
+  "size": "10",
+  "color": "Black",
+  "productUrl": "https://amazon.com/dp/B0CXYZ1234",
+  "retailer": "Amazon"
+}
+```
+
+### Response `201 Created`
+
+Returns the created cart item (same shape as items in `GET /api/cart`).
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 400 | `CartFullError` | Cart already has 10 items |
+| 400 | `CartInvalidProductError` | Invalid product data |
+| 409 | `CartDuplicateItemError` | Same product/size/color already in cart |
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/cart \
+  -H "Content-Type: application/json" \
+  -d '{"productId":"B0CXYZ1234","productName":"Nike Air Max 90","price":14999,"image":"https://example.com/shoe.jpg","size":"10","color":"Black","productUrl":"https://amazon.com/dp/B0CXYZ1234","retailer":"Amazon"}'
+```
+
+---
+
+## DELETE /api/cart/:itemId
+
+Remove a cart item by its UUID.
+
+**Auth required:** Yes + onboarding complete
+
+### Path Parameters
+
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | UUID | Cart item ID |
+
+### Response `204 No Content`
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 404 | `CartItemNotFoundError` | Item not found or belongs to a different user |
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X DELETE http://localhost:3000/api/cart/c1d2e3f4-a5b6-7890-cdef-123456789012
+```
+
+---
+
+## POST /api/cart/init
+
+Create the user's on-chain Cart object on the Sui network. Call this once before adding items when `CART_SERVICE=onchain`. Idempotent — returns success if the cart already exists.
+
+**Auth required:** Yes + onboarding complete
+
+### Response `200 OK`
+
+```json
+{ "created": true, "message": "Cart created" }
+```
+
+or when the cart already exists:
+
+```json
+{ "created": false, "message": "Cart already exists" }
+```
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 400 | `WALLET_NOT_PROVISIONED` | User's Sui wallet not yet provisioned |
+| 400 | `CONTRACT_NOT_CONFIGURED` | `SUI_CONTRACT_ADDRESS` not set |
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/cart/init
+```
+
+---
+
+## GET /api/cart/address
+
+Get the user's on-chain Cart object address. Returns `null` if the cart has not been initialized.
+
+**Auth required:** Yes + onboarding complete
+
+### Response `200 OK`
+
+```json
+{
+  "cartAddress": "0xabc123...64hex",
+  "exists": true
+}
+```
+
+### curl Example
+
+```bash
+curl -b cookies.txt http://localhost:3000/api/cart/address
+```
+
+---
+
+## GET /api/cart/info
+
+Get on-chain cart state: address and item count.
+
+**Auth required:** Yes + onboarding complete
+
+### Response `200 OK`
+
+```json
+{
+  "cartAddress": "0xabc123...64hex",
+  "itemCount": 2,
+  "exists": true
+}
+```
+
+### curl Example
+
+```bash
+curl -b cookies.txt http://localhost:3000/api/cart/info
+```

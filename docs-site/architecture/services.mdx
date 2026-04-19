@@ -1,0 +1,156 @@
+---
+title: Service Layer
+description: Effect-based service architecture in backend/ — dependency injection, live implementations, and error handling.
+---
+
+
+The `backend/` service uses [Effect](https://effect.website) for its service layer. This provides type-safe dependency injection, composable error handling, and runtime-swappable implementations.
+
+## Service Pattern
+
+Every service is split into two files:
+
+| File | Purpose |
+|---|---|
+| `backend/src/services/foo-service.ts` | Tag + interface definition (the "contract") |
+| `backend/src/services/foo-service-live.ts` | Production implementation + `Layer` export |
+
+**Example — CartService interface:**
+
+```typescript
+// cart-service.ts
+export class CartService extends Context.Tag("CartService")<
+  CartService,
+  {
+    listItems: (userId: string) => Effect.Effect<CartItem[], CartError>
+    addItem: (userId: string, item: AddCartItemInput) => Effect.Effect<CartItem, CartError>
+    removeItem: (userId: string, itemId: string) => Effect.Effect<void, CartError>
+  }
+>() {}
+```
+
+**Live implementation:**
+
+```typescript
+// cart-service-live.ts
+export const CartServiceLive = Layer.succeed(CartService, {
+  listItems: (userId) => Effect.tryPromise(() => db.select().from(cartItems).where(...)),
+  addItem: (userId, item) => Effect.tryPromise(() => db.insert(cartItems).values(item)),
+  removeItem: (userId, itemId) => Effect.tryPromise(() => db.update(cartItems)...),
+})
+```
+
+## Service Directory
+
+<Files>
+  <Folder name="backend/src/services" defaultOpen>
+    <File name="chat-session-service.ts" />
+    <File name="chat-session-service-live.ts" />
+    <File name="cart-service.ts" />
+    <File name="cart-service-live.ts (db + Redis)" />
+    <File name="cart-onchain-service-live.ts (Sui Move)" />
+    <File name="cart-onchain-reads.ts" />
+    <File name="cart-tools.ts (AI agent tools)" />
+    <File name="checkout-service.ts" />
+    <File name="checkout-service-live.ts" />
+    <File name="order-service.ts" />
+    <File name="order-service-live.ts" />
+    <File name="mock-product-service.ts" />
+    <File name="scraping-product-service.ts" />
+    <File name="product-service.ts" />
+    <File name="product-tools.ts (AI agent tools)" />
+    <File name="cache-service.ts (Redis)" />
+    <File name="sui-relayer.ts" />
+    <File name="indexer.ts" />
+    <File name="wallet-service.ts" />
+  </Folder>
+</Files>
+
+| Service | Responsibility |
+|---|---|
+| `ChatSessionService` | Create, read, update, delete chat sessions and messages |
+| `CartService` (db) | DB-backed cart CRUD with Redis cache |
+| `CartOnchainService` | Sui Move contract cart — build PTBs, submit via relayer |
+| `CheckoutService` | Orchestrate Crossmint order creation + cart item soft-delete |
+| `OrderService` | List/get orders with local status + optional Crossmint live status |
+| `MockProductService` | Returns hardcoded products for development |
+| `ScrapingProductService` | Calls `scraping/` API and caches results in Redis |
+| `CacheService` | Redis wrapper used by cart and scraping services |
+
+## PRODUCT_SERVICE and CART_SERVICE Toggles
+
+Two environment variables in `backend/src/index.ts` select the implementation layer at startup:
+
+```typescript
+// backend/src/index.ts
+const productServiceLayer =
+  env.PRODUCT_SERVICE === "scraping"
+    ? ScrapingProductServiceLive.pipe(Layer.provide(CacheServiceLive))
+    : MockProductServiceLive
+
+const cartServiceLayer =
+  env.CART_SERVICE === "onchain"
+    ? CartOnchainServiceLive
+    : CartServiceLive.pipe(Layer.provide(CacheServiceLive))
+```
+
+| Variable | `mock` (default) | `scraping` |
+|---|---|---|
+| `PRODUCT_SERVICE` | `MockProductServiceLive` — hardcoded product list | `ScrapingProductServiceLive` — calls `SCRAPING_SERVICE_URL` |
+
+| Variable | `db` (default) | `onchain` |
+|---|---|---|
+| `CART_SERVICE` | `CartServiceLive` — PostgreSQL + Redis | `CartOnchainServiceLive` — Sui Move contract |
+
+## Route to Service Flow
+
+Routes don't instantiate services directly. The service layer is provided as an Effect `Layer` when routes are mounted:
+
+```typescript
+// backend/src/index.ts
+app.route(
+  "/api/cart",
+  createCartRoutes(cartServiceLayer),   // inject the selected cart impl
+)
+```
+
+Inside the route handler:
+
+```typescript
+const result = await runService(
+  CartService.pipe(
+    Effect.flatMap((svc) => svc.listItems(userId)),
+    Effect.provide(layer),             // resolve the layer at runtime
+  ),
+)
+```
+
+`runService` wraps `Effect.runPromise` and returns `Either<Left<error>, Right<value>>` so the handler can map errors to HTTP status codes without try/catch.
+
+## Error Handling
+
+Each service defines typed error classes:
+
+```typescript
+export class CartItemNotFoundError {
+  readonly _tag = "CartItemNotFoundError"
+  constructor(readonly itemId: string) {}
+}
+
+export class CartDuplicateItemError {
+  readonly _tag = "CartDuplicateItemError"
+}
+```
+
+Route handlers map error tags to HTTP status codes:
+
+```typescript
+function cartErrorToStatus(tag: string): 400 | 404 | 409 | 500 {
+  if (tag === "CartItemNotFoundError") return 404
+  if (tag === "CartFullError") return 400
+  if (tag === "CartDuplicateItemError") return 409
+  return 500
+}
+```
+
+This keeps HTTP concerns out of the service layer entirely.

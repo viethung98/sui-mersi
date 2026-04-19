@@ -1,0 +1,115 @@
+---
+title: Orders
+description: List and retrieve order history with status and product snapshot.
+---
+
+<Callout type="warn">
+Requires a valid `crossmint-jwt` cookie and completed onboarding. Rate-limited at 30 req/min per user.
+</Callout>
+
+## Order Status Values
+
+Order status is updated automatically by the Crossmint webhook handler:
+
+| Status | Webhook Event | Description |
+|---|---|---|
+| `awaiting_approval` | — | Default after checkout creation |
+| `payment_confirmed` | `orders.payment.succeeded` | USDC payment confirmed |
+| `in_progress` | `orders.delivery.initiated` | Merchant processing |
+| `delivered` | `orders.delivery.completed` | Item delivered |
+| `cancelled` | `orders.payment.failed` / `orders.delivery.failed` | Failed payment or delivery |
+
+---
+
+## GET /api/orders
+
+List the authenticated user's orders with optional filters and pagination.
+
+**Auth required:** Yes + onboarding complete
+
+### Query Parameters
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `page` | string | `"1"` | Page number (1-based) |
+| `limit` | string | `"20"` | Results per page |
+| `type` | string | — | Filter by type: `checkout` or `deposit` |
+| `status` | string | — | Filter by status value (see table above) |
+| `phase` | string | — | Filter by Crossmint phase string |
+
+### Response `200 OK`
+
+```json
+{
+  "orders": [
+    {
+      "orderId": "d1e2f3a4-b5c6-7890-defg-234567890123",
+      "crossmintOrderId": "ed34a579-7fbc-4509-b8d8-9e61954cd555",
+      "type": "checkout",
+      "phase": "payment-confirmed",
+      "status": "payment_confirmed",
+      "item": {
+        "productId": "B0CXYZ1234",
+        "productName": "Nike Air Max 90",
+        "price": 14999,
+        "image": "https://example.com/shoe.jpg",
+        "size": "10",
+        "color": "Black",
+        "productUrl": "https://amazon.com/dp/B0CXYZ1234",
+        "retailer": "amazon"
+      },
+      "payment": {
+        "status": "succeeded",
+        "currency": "usdc"
+      },
+      "quote": {
+        "totalPrice": {
+          "amount": "149.99",
+          "currency": "usd"
+        }
+      },
+      "createdAt": "2026-04-19T10:00:00.000Z"
+    }
+  ],
+  "total": 5,
+  "page": 1,
+  "limit": 20
+}
+```
+
+### curl Example
+
+```bash
+curl -b cookies.txt "http://localhost:3000/api/orders?limit=10&type=checkout&status=payment_confirmed"
+```
+
+---
+
+## GET /api/orders/:orderId
+
+Get live details for a single order. The server fetches the current status from Crossmint and merges it with the local order record.
+
+**Auth required:** Yes + onboarding complete
+
+### Path Parameters
+
+| Param | Type | Description |
+|---|---|---|
+| `orderId` | UUID | Internal order ID returned by `POST /api/checkout` |
+
+### Response `200 OK`
+
+Same shape as a single item in the list response, including the full `item` snapshot and live `phase` / `payment` / `quote` from Crossmint.
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 404 | `OrderNotFoundError` | Order not found or belongs to another user |
+| 502 | `CheckoutOrderCreationError` | Crossmint API unavailable |
+
+### curl Example
+
+```bash
+curl -b cookies.txt http://localhost:3000/api/orders/d1e2f3a4-b5c6-7890-defg-234567890123
+```

@@ -1,0 +1,100 @@
+---
+title: State Management
+description: Zustand stores, TanStack Query keys, Ky client configuration, and required environment variables.
+---
+
+The app combines Zustand for client-owned UI state with TanStack Query for server-owned data. The Ky HTTP client handles all REST requests through the Next.js `/api` proxy.
+
+## Zustand Stores
+
+| Store | File | Persistence | What it holds |
+|---|---|---|---|
+| `useSessionStore` | `lib/session-store.ts` | `localStorage` (`purch-session`) | `sessionId`, `clientId`, `_hasHydrated` flag |
+| `useCartStore` | `lib/cart-store.ts` | None (hydrated from backend on mount) | `CartItem[]`, `isOpen` |
+| `useOrdersStore` | `lib/orders-store.ts` | None | `isOpen` (sidebar visibility only) |
+| `useProductDetailStore` | `lib/product-detail-store.ts` | None | `product: Product \| null` (detail sheet) |
+
+### `useSessionStore`
+
+Persisted with `zustand/middleware/persist`. On rehydration, `clientId` is initialised to a new `crypto.randomUUID()` if not already set, and `_hasHydrated` is set to `true`. The chat page waits for `_hasHydrated` before attempting to load a session.
+
+### `useCartStore`
+
+Not persisted. The `hydrate(items)` action merges incoming backend items with any pending local items (those without a `backendId`) so optimistic additions made before the hydration response are not lost.
+
+### `useProductDetailStore`
+
+Opened by product cards inside `ChatMessage` tool-result renders. `ProductDetailSheet` reads `product` from this store and renders a slide-in sheet with images, price, and add-to-cart action.
+
+## TanStack Query
+
+`QueryClient` is created in `app/providers.tsx` with a global `staleTime` of 30 000 ms.
+
+| Query key | Hook | API call | Used by |
+|---|---|---|---|
+| `['sessions']` | `useListSessions` | `GET /api/sessions?limit=100` | `ChatSidebar` |
+| _(invalidated via `useInvalidateSessions`)_ | — | — | `ChatPage` after session creation |
+| `['onboarding-status']` | `useOnboardingStatus` | `GET /api/onboarding/status` | Login page redirect, onboarding page |
+| `['orders']` (or similar) | Per-component query | `GET /api/orders` | `OrdersSidebar` |
+
+Mutations for onboarding steps use `useMutation` from `lib/api/onboarding.ts`.
+
+## Ky HTTP Client — `lib/api/client.ts`
+
+```ts
+export const apiClient = ky.create({
+  prefixUrl: '/api',      // all requests route through the Next.js rewrite proxy
+  credentials: 'include', // session cookies forwarded automatically
+  hooks: {
+    beforeError: [
+      async (error) => {
+        // Redirect to /onboarding when backend returns { code: 'ONBOARDING_INCOMPLETE' }
+      },
+    ],
+  },
+})
+```
+
+All functions in `lib/api/` import `apiClient` rather than constructing `fetch` calls directly. The chat send path is the only exception — it calls `fetch('/api/chat', ...)` directly to get access to the raw `ReadableStream` for SSE parsing.
+
+## Backend Proxy
+
+`next.config.ts` rewrites all `/api/:path*` requests to `BACKEND_URL` (or `NEXT_PUBLIC_API_URL`), falling back to a default Railway URL.
+
+```ts
+// next.config.ts
+rewrites() {
+  return [{ source: '/api/:path*', destination: `${BACKEND}/api/:path*` }]
+}
+```
+
+## Environment Variables
+
+<TypeTable
+  type={{
+    NEXT_PUBLIC_CROSSMINT_API_KEY: {
+      description: "Crossmint client API key. Required — `Providers` throws at startup if missing.",
+      type: "string",
+      required: true,
+    },
+    NEXT_PUBLIC_API_URL: {
+      description: "Public fallback backend/ URL when BACKEND_URL is not set. Exposed to the browser.",
+      type: "string",
+      required: false,
+    },
+    BACKEND_URL: {
+      description: "Server-side URL of the backend/ service. Used by the Next.js rewrite proxy. Takes priority over NEXT_PUBLIC_API_URL. Not exposed to the browser.",
+      type: "string",
+      required: false,
+    },
+    NEXT_PUBLIC_DEBUG_CHAT_STREAM: {
+      description: 'Set to `"1"` to log all raw SSE events and message state transitions to the browser console. Development only.',
+      type: "string",
+      required: false,
+    },
+  }}
+/>
+
+<Callout type="info">
+  Copy `frontend/.env.example` to `frontend/.env.local` and fill in `NEXT_PUBLIC_CROSSMINT_API_KEY` and `NEXT_PUBLIC_API_URL` before running locally.
+</Callout>

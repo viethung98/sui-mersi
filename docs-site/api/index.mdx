@@ -1,0 +1,150 @@
+---
+title: API Overview
+description: Base URL, authentication, rate limits, and error format for the backend API.
+---
+
+
+## Base URL
+
+```
+http://localhost:3000     # development
+https://your-domain.com   # production
+```
+
+Interactive docs are available at `/swagger` and the raw OpenAPI 3.1.0 schema at `/doc`.
+
+## Authentication
+
+The backend (`backend/`) uses **cookie-based JWT authentication** issued by Crossmint. The cookie name is `crossmint-jwt`.
+
+<Steps>
+### User authenticates with Crossmint on the frontend
+
+The frontend uses `@crossmint/client-sdk-react-ui` for OTP-based email or Google login. After login, the Crossmint SDK provides a JWT and optional refresh token.
+
+### Pass the JWT to the backend
+
+```bash
+POST /api/auth/session
+Content-Type: application/json
+
+{
+  "jwt": "<crossmint-jwt>",
+  "refreshToken": "<optional-refresh-token>",
+  "email": "user@example.com"
+}
+```
+
+### Server sets HttpOnly cookies
+
+The server validates the JWT with Crossmint and sets:
+- `crossmint-jwt` — access token
+- `crossmint-refresh-token` — refresh token (if provided and valid)
+- `crossmint-email` — user email
+
+### All protected routes use the cookie
+
+Send requests with `credentials: "include"` (browser) or `-b cookies.txt` (curl). The cookie is validated on every protected route.
+</Steps>
+
+<Callout type="warn">
+**Onboarding gate:** Routes under `/api/chat`, `/api/sessions`, `/api/cart`, `/api/checkout`, and `/api/orders` require the user to have completed all three onboarding steps (`onboardingStep >= 3`). Incomplete onboarding returns `403 ONBOARDING_INCOMPLETE`.
+</Callout>
+
+## Rate Limits
+
+The default rate limit is **30 requests per minute** (`RATE_LIMIT_RPM` env var). Applied per authenticated user on all rate-limited routes — keyed on `userId`, not IP.
+
+| Route group | Applies to |
+|---|---|
+| `/api/onboarding/*` | Per authenticated user |
+| `/api/chat/*` | Per authenticated user |
+| `/api/sessions/*` | Per authenticated user |
+| `/api/checkout/*` | Per authenticated user |
+| `/api/orders/*` | Per authenticated user |
+| `/api/cart/*` | Per authenticated user |
+
+## Error Format
+
+All errors return a consistent JSON envelope:
+
+```json
+{
+  "error": "Human-readable description",
+  "code": "MACHINE_READABLE_CODE"
+}
+```
+
+### Common Error Codes
+
+| HTTP | Code | Cause |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Request body failed Zod schema validation |
+| 400 | `BAD_REQUEST` | Missing or malformed parameter |
+| 401 | `UNAUTHORIZED` | Missing, expired, or invalid JWT cookie |
+| 403 | `ONBOARDING_INCOMPLETE` | User has not completed all 3 onboarding steps |
+| 403 | `FORBIDDEN` | Authenticated but not the resource owner |
+| 404 | `NOT_FOUND` | Resource does not exist |
+| 409 | `CONFLICT` | Duplicate resource (e.g. cart item already exists) |
+| 422 | `INSUFFICIENT_FUNDS` | USDC balance too low for checkout |
+| 429 | `RATE_LIMIT_EXCEEDED` | Too many requests |
+| 500 | `INTERNAL_ERROR` | Unexpected server error |
+| 502 | `UPSTREAM_ERROR` | Crossmint or external service failure |
+| 503 | `WEBHOOK_NOT_CONFIGURED` | Webhook secret not set |
+
+## Public Endpoints
+
+These routes require no authentication:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness probe — returns `{ ok: true }` |
+| `GET` | `/doc` | OpenAPI 3.1.0 schema (JSON) |
+| `GET` | `/swagger` | Swagger UI |
+| `POST` | `/api/auth/session` | Set session cookies from Crossmint JWT |
+| `POST` | `/api/auth/logout` | Clear all session cookies |
+| `POST` | `/api/webhooks/crossmint` | Crossmint Svix webhook receiver |
+
+## CORS
+
+The server allows credentials-bearing cross-origin requests from the following origins:
+
+- `http://localhost:8080`
+- `http://localhost:3000`
+- `http://localhost:3001`
+- `http://localhost:5173`
+- `"null"` (file:// origin for local test pages)
+
+The `Access-Control-Allow-Origin` header echoes the request origin exactly (never wildcard) when credentials are included.
+
+## Endpoint Summary
+
+<Cards>
+  <Card title="Auth" href="/api/auth">
+    Session setup, profile, logout.
+  </Card>
+  <Card title="Onboarding" href="/api/onboarding">
+    3-step onboarding: display name, shipping address, clothing sizes.
+  </Card>
+  <Card title="Chat" href="/api/chat">
+    Streaming ReAct agent with product search and cart tools.
+  </Card>
+  <Card title="Sessions" href="/api/sessions">
+    Create, list, get, rename, and delete chat sessions.
+  </Card>
+  <Card title="Cart" href="/api/cart">
+    Add, list, remove items. On-chain cart init and address lookup.
+  </Card>
+  <Card title="Checkout" href="/api/checkout">
+    Purchase a cart item via Crossmint USDC payment.
+  </Card>
+  <Card title="Orders" href="/api/orders">
+    List and get order history with live Crossmint status.
+  </Card>
+  <Card title="Deposit" href="/api/deposit">
+    Verify a Sui USDC deposit and fund the Crossmint EVM wallet.
+  </Card>
+  <Card title="Webhooks" href="/api/webhooks">
+    Crossmint Svix webhook handler for order status updates.
+  </Card>
+</Cards>

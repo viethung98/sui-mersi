@@ -1,0 +1,199 @@
+---
+title: Sessions
+description: Create, list, retrieve, rename, and delete chat conversation sessions.
+---
+
+<Callout type="warn">
+Requires a valid `crossmint-jwt` cookie and completed onboarding (`onboardingStep === 3`). Rate-limited at 30 req/min per user.
+</Callout>
+
+Sessions represent a single chat conversation thread. Messages are stored as `chat_messages` rows linked to the session. Sessions cascade-delete their messages when deleted.
+
+## POST /api/sessions
+
+Create a new chat session with an optional title.
+
+**Auth required:** Yes + onboarding complete
+
+### Request Body
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `title` | string | No | 1–255 chars. Omit to create an untitled session. |
+
+```json
+{ "title": "Shopping for winter coats" }
+```
+
+### Response `201 Created`
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userId": "f0e1d2c3-b4a5-6789-0abc-def123456789",
+  "title": "Shopping for winter coats",
+  "createdAt": "2026-04-19T10:00:00.000Z",
+  "updatedAt": "2026-04-19T10:00:00.000Z"
+}
+```
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X POST http://localhost:3000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Shopping for winter coats"}'
+```
+
+---
+
+## GET /api/sessions
+
+List the authenticated user's chat sessions ordered by `updatedAt` descending.
+
+**Auth required:** Yes + onboarding complete
+
+### Query Parameters
+
+| Param | Type | Default | Max |
+|---|---|---|---|
+| `limit` | integer | 20 | 100 |
+| `offset` | integer | 0 | — |
+
+### Response `200 OK`
+
+```json
+{
+  "sessions": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "userId": "f0e1d2c3-b4a5-6789-0abc-def123456789",
+      "title": "Shopping for winter coats",
+      "createdAt": "2026-04-19T10:00:00.000Z",
+      "updatedAt": "2026-04-19T10:05:00.000Z"
+    }
+  ],
+  "total": 14
+}
+```
+
+### curl Example
+
+```bash
+curl -b cookies.txt "http://localhost:3000/api/sessions?limit=10&offset=0"
+```
+
+---
+
+## GET /api/sessions/:id
+
+Get a single session with all of its messages. Returns messages in `UIMessage`-compatible shape (`id`, `role`, `parts`, `createdAt`).
+
+**Auth required:** Yes + onboarding complete
+
+### Path Parameters
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | UUID | Session ID |
+
+### Response `200 OK`
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userId": "f0e1d2c3-b4a5-6789-0abc-def123456789",
+  "title": "Shopping for winter coats",
+  "createdAt": "2026-04-19T10:00:00.000Z",
+  "updatedAt": "2026-04-19T10:05:00.000Z",
+  "messages": [
+    {
+      "id": "msg_abc123def456",
+      "role": "user",
+      "parts": [{ "type": "text", "text": "Show me winter coats" }],
+      "createdAt": "2026-04-19T10:00:01.000Z"
+    },
+    {
+      "id": "msg_xyz789ghi012",
+      "role": "assistant",
+      "parts": [{ "type": "text", "text": "Here are some options..." }],
+      "createdAt": "2026-04-19T10:00:03.000Z"
+    }
+  ]
+}
+```
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | `id` is not a valid UUID |
+| 403 | `SessionOwnershipError` | Session belongs to a different user |
+| 404 | `SessionNotFound` | No session with that ID |
+
+### curl Example
+
+```bash
+curl -b cookies.txt http://localhost:3000/api/sessions/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+---
+
+## PATCH /api/sessions/:id
+
+Rename a session.
+
+**Auth required:** Yes + onboarding complete
+
+### Request Body
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `title` | string | Yes | 1–255 chars |
+
+```json
+{ "title": "Winter coat shopping — Jan 2026" }
+```
+
+### Response `200 OK`
+
+Returns the updated session object (same shape as `POST /api/sessions`).
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | `title` is missing or too long |
+| 403 | `SessionOwnershipError` | Session belongs to a different user |
+| 404 | `SessionNotFound` | No session with that ID |
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X PATCH http://localhost:3000/api/sessions/a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Winter coat shopping — Jan 2026"}'
+```
+
+---
+
+## DELETE /api/sessions/:id
+
+Delete a session and all its messages (cascade on the database).
+
+**Auth required:** Yes + onboarding complete
+
+### Response `204 No Content`
+
+### Errors
+
+| Status | Code | Cause |
+|---|---|---|
+| 403 | `SessionOwnershipError` | Session belongs to a different user |
+| 404 | `SessionNotFound` | No session with that ID |
+
+### curl Example
+
+```bash
+curl -b cookies.txt -X DELETE http://localhost:3000/api/sessions/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```

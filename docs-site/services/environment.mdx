@@ -1,0 +1,171 @@
+---
+title: Environment Reference
+description: Complete list of environment variables for the scraping/ service, grouped by category.
+---
+
+
+Copy `scraping/.env.example` to `scraping/.env` and fill in the values for your environment before starting the service.
+
+<Callout type="warning">
+  Never commit real credentials to version control. Use `.env` locally and inject secrets via your deployment platform in production.
+</Callout>
+
+## Core
+
+<TypeTable
+  type={{
+    NODE_ENV: {
+      description: 'Runtime environment',
+      type: '"development" | "production" | "test"',
+      default: '"development"',
+    },
+    PORT: {
+      description: 'HTTP port the NestJS app listens on',
+      type: 'number',
+      default: '3000',
+    },
+  }}
+/>
+
+## Database (PostgreSQL)
+
+<TypeTable
+  type={{
+    DB_URL: {
+      description: 'Full PostgreSQL connection string. Takes precedence over individual DB_* vars.',
+      type: 'string',
+      default: '""',
+    },
+    DB_DATABASE: {
+      description: 'Database name (used when DB_URL is not set)',
+      type: 'string',
+      default: '"amazon_shopping_agent"',
+    },
+    DB_SYNCHRONIZE: {
+      description: 'Auto-sync TypeORM schema on startup. Set to "false" in production — use migrations instead.',
+      type: '"true" | "false"',
+      default: '"false"',
+    },
+    DB_MIGRATIONS_RUN: {
+      description: 'Run pending migrations on startup',
+      type: '"true" | "false"',
+      default: '"false"',
+    },
+  }}
+/>
+
+The docker-compose defaults are: host `postgres`, port `5432`, user `postgres`, password `postgres_password`, database `amazon_shopping_agent`.
+
+## Redis
+
+<TypeTable
+  type={{
+    REDIS_HOST: {
+      description: 'Redis hostname',
+      type: 'string',
+      default: '"localhost"',
+    },
+    REDIS_PORT: {
+      description: 'Redis port',
+      type: 'number',
+      default: '6379',
+    },
+    REDIS_PASSWORD: {
+      description: 'Redis AUTH password (optional)',
+      type: 'string',
+      default: 'undefined',
+    },
+  }}
+/>
+
+Redis is used for transaction verification locks (`lock:tx_verify:{txHash}`) and processed-transaction deduplication keys (`sui:tx:processed:{txHash}`).
+
+## Apify (Scraping)
+
+<TypeTable
+  type={{
+    APIFY_API_TOKEN: {
+      description: 'Apify personal API token. Required for the realtime search endpoint to call the e-commerce scraping actor.',
+      type: 'string',
+      default: '""',
+    },
+  }}
+/>
+
+## Sui
+
+<TypeTable
+  type={{
+    SUI_NETWORK: {
+      description: 'Sui network name passed to the Sui client',
+      type: '"testnet" | "mainnet"',
+      default: '"testnet"',
+    },
+    SUI_RPC_URL: {
+      description: 'Sui RPC full-node URL',
+      type: 'string',
+      default: '"https://fullnode.testnet.sui.io:443"',
+    },
+    SUI_MERCHANT_ADDRESS: {
+      description: 'Sui address that receives payments. Required — omitting it disables transaction verification.',
+      type: 'string',
+      default: '""',
+    },
+    SUI_PAYMENT_AMOUNT_MIST: {
+      description: 'Minimum accepted payment in MIST (1 SUI = 1 000 000 000 MIST)',
+      type: 'string',
+      default: '"1000000000" (1 SUI)',
+    },
+    SUI_COIN_TYPE: {
+      description: 'Move coin type accepted for payments',
+      type: 'string',
+      default: '"0x2::sui::SUI"',
+    },
+    SUI_REGISTRY_NAME: {
+      description: 'Payment Kit registry name used for nonce-based record lookup (optional)',
+      type: 'string',
+      default: 'undefined',
+    },
+  }}
+/>
+
+## backend/ Webhook
+
+<TypeTable
+  type={{
+    COMAGENT_BASE_URL: {
+      description: 'Base URL of the backend/ service. Used to forward deposit confirmation events after Sui TX verification.',
+      type: 'string',
+      default: '"http://localhost:3001"',
+    },
+    DEPOSIT_WEBHOOK_SECRET: {
+      description: 'Shared secret sent in the X-Webhook-Secret header on deposit webhook calls. A warning is logged at startup if empty.',
+      type: 'string',
+      default: '""',
+    },
+  }}
+/>
+
+## Development
+
+<TypeTable
+  type={{
+    TEST_SUI_PRIVATE_KEY: {
+      description: 'Sui private key used by local test scripts (e.g. scripts/test-sui-payment.ts). Never set in production.',
+      type: 'string',
+      default: 'undefined',
+    },
+  }}
+/>
+
+## Docker Compose Services
+
+| Service | Image | Port | Purpose |
+|---------|-------|------|---------|
+| `app` | Local Dockerfile | `3000` | NestJS application |
+| `postgres` | `postgres:15-alpine` | `5432` | Primary database |
+| `redis` | `redis:7-alpine` | `6379` | Cache and distributed locks |
+| `meilisearch` | `getmeili/meilisearch:v1.5` | `7700` | Full-text search engine (provisioned, not yet used) |
+| `pgadmin` | `dpage/pgadmin4` | `5050` | Optional — PostgreSQL UI |
+
+All services share the `app-network` bridge network. The NestJS app waits for PostgreSQL, Redis, and Meilisearch health checks before starting.

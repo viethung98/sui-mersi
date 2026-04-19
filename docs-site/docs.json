@@ -1,0 +1,141 @@
+{
+  "$schema": "https://cmdocs.sh/schema/docs.json",
+  "name": "Mersi",
+  "description": "AI Shopping Agent on Sui — conversational commerce powered by Sui Payment Kit and MemWal",
+  "navbar": {
+    "title": "Mersi",
+    "links": [
+      { "text": "Swagger UI", "href": "http://localhost:3000/swagger", "icon": "BookOpen" }
+    ]
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "label": "Getting Started",
+        "path": "getting-started",
+        "groups": [
+          {
+            "label": "Introduction",
+            "pages": [
+              { "file": "getting-started/index" },
+              { "file": "getting-started/quickstart" }
+            ]
+          }
+        ]
+      },
+      {
+        "label": "API Reference",
+        "path": "api",
+        "groups": [
+          {
+            "label": "Overview",
+            "pages": [{ "file": "api/index" }]
+          },
+          {
+            "label": "Auth & Onboarding",
+            "pages": [
+              { "file": "api/auth" },
+              { "file": "api/onboarding" }
+            ]
+          },
+          {
+            "label": "Core",
+            "pages": [
+              { "file": "api/chat" },
+              { "file": "api/sessions" },
+              { "file": "api/cart" },
+              { "file": "api/checkout" },
+              { "file": "api/orders" }
+            ]
+          },
+          {
+            "label": "Payments & Webhooks",
+            "pages": [
+              { "file": "api/deposit" },
+              { "file": "api/webhooks" }
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Architecture",
+        "path": "architecture",
+        "groups": [
+          {
+            "label": "Overview",
+            "pages": [
+              { "file": "architecture/index" },
+              { "file": "architecture/services" },
+              { "file": "architecture/database" }
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Integrations",
+        "path": "integrations",
+        "groups": [
+          {
+            "label": "External Services",
+            "pages": [
+              { "file": "integrations/crossmint" },
+              { "file": "integrations/sui" }
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Deployment",
+        "path": "deployment",
+        "groups": [
+          {
+            "label": "Production",
+            "pages": [
+              { "file": "deployment/index" },
+              { "file": "deployment/environment" }
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Frontend",
+        "path": "frontend",
+        "groups": [
+          {
+            "label": "Overview",
+            "pages": [{ "file": "frontend/index" }]
+          },
+          {
+            "label": "Reference",
+            "pages": [
+              { "file": "frontend/pages" },
+              { "file": "frontend/chat" },
+              { "file": "frontend/cart-checkout" },
+              { "file": "frontend/state" }
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Services",
+        "path": "services",
+        "groups": [
+          {
+            "label": "Overview",
+            "pages": [{ "file": "services/index" }]
+          },
+          {
+            "label": "Reference",
+            "pages": [
+              { "file": "services/scraping" },
+              { "file": "services/payments" },
+              { "file": "services/environment" }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "search": { "enabled": true },
+  "ai": { "llmsTxt": true }
+}

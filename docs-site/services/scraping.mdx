@@ -1,0 +1,212 @@
+---
+title: Search & Scraping
+description: Real-time Amazon product search — builds native Amazon.com search URLs and scrapes results via the Apify e-commerce actor.
+---
+
+
+## How It Works
+
+```mermaid
+graph LR
+    Request["GET /api/search/realtime?q=..."]
+    Apify["Apify Actor\napify/e-commerce-scraping-tool"]
+    Norm["NormalisationService\nflatten + validate"]
+    Response["Ranked product list"]
+
+    Request -->|build Amazon URL| Apify
+    Apify -->|dataset items| Norm
+    Norm -->|NormalizedProduct[]| Response
+```
+
+<Steps>
+  ### Build Amazon search URL
+
+  `ApifyClientService.buildAmazonSearchUrl()` converts the query string and any filters into a native **amazon.com** search URL — for example `https://www.amazon.com/s?k=shoes&s=price-asc-rank`. Sorting, price range, Prime eligibility, and product condition are all encoded as native Amazon URL parameters so the actor scrapes a pre-filtered page.
+
+  ### Run the Apify actor
+
+  The service calls `actor('apify/e-commerce-scraping-tool').call(input, { timeout: 300 })` with `scrapeMode: 'AUTO'` and `additionalProperties: true`. The actor scrapes the Amazon listing page and stores results in an Apify dataset. A hard timeout of **300 seconds** is applied to the actor run.
+
+  ### Retrieve and normalise results
+
+  The dataset items are fetched and passed through `NormalisationService.normalizeAndValidate()`, which filters out malformed entries and maps Apify field names to the internal `NormalizedProduct` shape.
+
+  ### Return ranked products
+
+  The response contains the product list, pagination metadata, execution time, and the source identifier `"realtime"`.
+</Steps>
+
+## Search Endpoint
+
+### `GET /api/search/realtime`
+
+Rate limit: **10 requests per minute per IP**. The endpoint is currently **ungated** — the `@MppCharge` payment decorator is disabled in the controller.
+
+#### Query Parameters
+
+<TypeTable
+  type={{
+    q: {
+      description: 'Search keyword (required)',
+      type: 'string',
+      default: '—',
+    },
+    page: {
+      description: 'Page number (1-based)',
+      type: 'number',
+      default: '1',
+    },
+    limit: {
+      description: 'Results per page',
+      type: 'number',
+      default: '20',
+    },
+    category: {
+      description: 'Product category filter appended to the keyword',
+      type: 'string',
+      default: 'undefined',
+    },
+    brand: {
+      description: 'Brand filter appended to the keyword',
+      type: 'string',
+      default: 'undefined',
+    },
+    color: {
+      description: 'Colour filter appended to the keyword',
+      type: 'string',
+      default: 'undefined',
+    },
+    size: {
+      description: 'Size filter appended to the keyword',
+      type: 'string',
+      default: 'undefined',
+    },
+    minPrice: {
+      description: 'Minimum price (maps to Amazon low-price param)',
+      type: 'number',
+      default: 'undefined',
+    },
+    maxPrice: {
+      description: 'Maximum price (maps to Amazon high-price param)',
+      type: 'number',
+      default: 'undefined',
+    },
+    minRating: {
+      description: 'Minimum rating 0–5 (applied as a post-scrape filter on the normalised results)',
+      type: 'number',
+      default: 'undefined',
+    },
+  }}
+/>
+
+#### Response
+
+```json
+{
+  "data": {
+    "products": [
+      {
+        "asin": "B09ABCDEF1",
+        "title": "Example Running Shoes",
+        "price": 49.99,
+        "originalPrice": 69.99,
+        "rating": 4.5,
+        "reviewCount": 1234,
+        "imageUrl": "https://...",
+        "productUrl": "https://www.amazon.com/dp/B09ABCDEF1",
+        "brand": "Nike",
+        "category": "Shoes",
+        "availability": true
+      }
+    ],
+    "total": 18,
+    "page": 1,
+    "limit": 20,
+    "totalPage": 1,
+    "source": "realtime",
+    "query": "running shoes",
+    "executionTime": 8432
+  },
+  "status": "OK",
+  "code": 200,
+  "message": "Realtime search completed successfully"
+}
+```
+
+#### curl Example
+
+```bash
+curl "http://localhost:3001/api/search/realtime?q=running+shoes&limit=10&minPrice=20&maxPrice=100"
+```
+
+## Product Endpoint
+
+### `GET /api/search/realtime/product/:asin`
+
+Fetches a single product by ASIN. The ASIN must match `/^[A-Z0-9]{10}$/i`.
+
+Rate limit: **10 requests per minute per IP**.
+
+```bash
+curl "http://localhost:3001/api/search/realtime/product/B09ABCDEF1"
+```
+
+## Health Check
+
+### `GET /api/search/realtime/health`
+
+Returns `{ status: "healthy" }` when the Apify API is reachable, `{ status: "unavailable" }` otherwise. This calls `ApifyClient.user().get()` to validate the token.
+
+## Amazon URL Filters
+
+The following search filters are translated to native Amazon URL parameters:
+
+| Filter field | Amazon parameter |
+|-------------|-----------------|
+| `category`, `brand`, `color`, `size` | Appended to the `k` keyword |
+| `minPrice` | `low-price` |
+| `maxPrice` | `high-price` |
+| `sortBy: "price_asc"` | `s=price-asc-rank` |
+| `sortBy: "price_desc"` | `s=price-desc-rank` |
+| `sortBy: "rating"` | `s=review-rank` |
+| `sortBy: "newest"` | `s=date-desc-rank` |
+| `prime: true` | `rh=p_85:2470955011` |
+| `condition: "new"` | `rh=p_n_condition-type:6461716011` |
+
+## Error Handling
+
+<Accordions>
+  <Accordion title="Apify actor timeout (300 s)">
+    If the actor run exceeds 300 seconds, `actor.call()` throws. The error propagates as a `500 Internal Server Error`. Retry the request; Apify run results are not cached server-side.
+  </Accordion>
+  <Accordion title="Actor returns 0 results">
+    An empty `products` array is returned with `total: 0`. This is not an error — it means Amazon returned no listings for the query/filter combination.
+  </Accordion>
+  <Accordion title="Apify API token invalid">
+    The health endpoint returns `{ status: "unavailable" }`. All search requests will fail with `500`. Verify `APIFY_API_TOKEN` in your environment.
+  </Accordion>
+  <Accordion title="Normalisation drops items">
+    Items that fail field validation are silently dropped by `NormalisationService`. The `total` field reflects the count after normalisation, not the raw Apify count.
+  </Accordion>
+</Accordions>
+
+## Environment Variables
+
+<TypeTable
+  type={{
+    APIFY_API_TOKEN: {
+      description: 'Personal API token from apify.com — used to authenticate actor runs',
+      type: 'string',
+      default: '""',
+    },
+    COMAGENT_BASE_URL: {
+      description: 'Base URL of the upstream backend/ service (used for deposit webhooks, not search)',
+      type: 'string',
+      default: '"http://localhost:3001"',
+    },
+  }}
+/>
+
+<Callout type="warning">
+  `APIFY_API_TOKEN` is required for search to work. Without it every actor call will fail with an authentication error.
+</Callout>

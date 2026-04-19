@@ -1,0 +1,201 @@
+---
+title: Quickstart
+description: Clone, configure, and run all three services locally in under 10 minutes.
+---
+
+
+## Prerequisites
+
+- [Bun](https://bun.sh) 1.x (backend/ runtime)
+- Node.js 20+ (scraping/ service)
+- PostgreSQL 15+ or a [Neon](https://neon.tech) serverless connection string
+- Redis 7+ (default: `redis://localhost:6379`)
+- A [Crossmint](https://crossmint.com) server API key
+- An [OpenRouter](https://openrouter.ai) API key
+
+## 1. backend/ (Bun + Hono AI agent)
+
+<Steps>
+### Clone and install
+
+```bash
+cd backend
+bun install
+```
+
+### Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Set the three required variables at minimum:
+
+```env
+DATABASE_URL=postgres://user:pass@localhost:5432/mersi
+CROSSMINT_SERVER_API_KEY=sk_production_...
+OPENROUTER_API_KEY=sk-or-...
+```
+
+See the full [backend environment reference](/deployment/environment) for all options.
+
+### Run database migrations
+
+```bash
+cd backend && bunx drizzle-kit migrate
+```
+
+### Start the server
+
+```bash
+bun run dev
+```
+
+Server listens on `http://localhost:3000` by default (`PORT` env var overrides).
+
+### Verify
+
+```bash
+# Liveness
+curl http://localhost:3000/health
+
+# Interactive OpenAPI docs
+open http://localhost:3000/swagger
+```
+</Steps>
+
+## 2. frontend/ (Next.js app)
+
+<Steps>
+### Install dependencies
+
+```bash
+cd frontend
+bun install
+```
+
+### Configure environment
+
+Create a `.env.local` file:
+
+```env
+NEXT_PUBLIC_CROSSMINT_API_KEY=pk_staging_...
+```
+
+### Start dev server
+
+```bash
+bun run dev
+```
+
+App runs on `http://localhost:3000` (Next.js default). The `next.config.ts` proxies `/api/*` requests to the backend at port 3001 or whichever port is configured.
+</Steps>
+
+## 3. scraping/ (NestJS realtime search)
+
+<Steps>
+### Install dependencies
+
+```bash
+cd scraping
+npm install
+```
+
+### Configure environment
+
+```env
+NODE_ENV=development
+APIFY_API_TOKEN=
+REDIS_HOST=localhost
+REDIS_PORT=6379
+SUI_NETWORK=testnet
+```
+
+See [scraping environment reference](/services/environment) for the full list.
+
+### Start dev server
+
+```bash
+npm run dev    # NestJS watch mode (alias: nest start --watch)
+```
+</Steps>
+
+## Available Commands
+
+### backend/
+
+```bash
+bun run dev              # Dev server with watch mode
+bun run start            # Production server
+bunx drizzle-kit generate   # Generate migrations from schema changes
+bunx drizzle-kit migrate    # Apply pending migrations
+bunx drizzle-kit studio     # Visual DB browser (Drizzle Studio)
+bun test                    # Run tests
+bun run codegen             # Run Sui TypeScript codegen
+```
+
+### frontend/
+
+```bash
+bun run dev      # Next.js dev server
+bun run build    # Production build
+bun run lint     # ESLint check
+bun run gen:api  # Regenerate API types from OpenAPI spec
+```
+
+### scraping/
+
+```bash
+npm run dev    # NestJS watch mode (alias: nest start --watch)           # NestJS watch mode
+npm run build         # Compile TypeScript
+npm run start:prod    # Run compiled output
+npm test              # Jest unit tests
+```
+
+## Configuration Toggles (backend/)
+
+Two environment variables switch implementations at startup with no code changes:
+
+| Variable | Options | Default | Effect |
+| --- | --- | --- | --- |
+| `PRODUCT_SERVICE` | `mock` or `scraping` | `mock` | Use mock product data or live Apify scraping via the scraping/ service |
+| `CART_SERVICE` | `db` or `onchain` | `db` | Redis-backed cart or Sui Move contract on-chain cart |
+
+<Callout type="info">
+  When `CART_SERVICE=onchain`, you must also set `SUI_CONTRACT_ADDRESS`,
+  `SUI_CART_REGISTRY_ID`, and `SUI_RELAYER_PRIVATE_KEY`. The server fails fast
+  with a clear error if any are missing.
+</Callout>
+
+## Testing the Chat Agent
+
+A dev login endpoint is available in non-production environments:
+
+```bash
+# 1. Create dev session (sets crossmint-jwt cookie automatically)
+curl -c cookies.txt -X POST http://localhost:3000/api/dev/login \
+  -H "Content-Type: application/json" \
+  
+
+# 2. Complete onboarding step 1 (required before chat)
+curl -b cookies.txt -X POST http://localhost:3000/api/onboarding/step-1 \
+  -H "Content-Type: application/json" \
+  -d '{"displayName":"Dev User"}'
+
+# 3. Complete onboarding step 2
+curl -b cookies.txt -X POST http://localhost:3000/api/onboarding/step-2 \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Dev","lastName":"User","street":"123 Main St","country":"US","city":"New York","zip":"10001"}'
+
+# 4. Complete onboarding step 3
+curl -b cookies.txt -X POST http://localhost:3000/api/onboarding/step-3 \
+  -H "Content-Type: application/json" \
+  -d '{"topsSize":"M","bottomsSize":"32","footwearSize":"10"}'
+
+# 5. Chat with the agent
+curl -b cookies.txt -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Find me a blue denim jacket under $100"}]}'
+```
+
+Or open the built-in test page at `http://localhost:3000/test`.

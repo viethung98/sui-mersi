@@ -1,0 +1,200 @@
+---
+title: Environment Variables
+description: Complete reference for all environment variables used by backend/, frontend/, and scraping/.
+---
+
+
+## backend/ (Bun + Hono)
+
+Copy `backend/.env.example` to `backend/.env` and fill in the required values before starting the server.
+
+### Required
+
+These variables must be set. The `backend/` server will **refuse to start** if any are missing.
+
+<TypeTable
+  type={{
+    DATABASE_URL: {
+      description: "PostgreSQL connection string (pooler endpoint, e.g. Neon PgBouncer URL)",
+      type: "string",
+    },
+    CROSSMINT_SERVER_API_KEY: {
+      description: "Crossmint server-side API key. Prefix: `sk_staging_` or `sk_production_`.",
+      type: "string",
+    },
+    OPENROUTER_API_KEY: {
+      description: "OpenRouter API key for LLM access. Prefix: `sk-or-`.",
+      type: "string",
+    },
+  }}
+/>
+
+### Core Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | HTTP server port |
+| `NODE_ENV` | `development` | `development` \| `production` \| `test`. Controls dev routes and log format. |
+| `LOG_LEVEL` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` \| `fatal` |
+| `RATE_LIMIT_RPM` | `30` | Max requests per minute per authenticated user |
+
+### Database
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | — | PostgreSQL pooler URL (required) |
+| `DATABASE_URL_DIRECT` | `DATABASE_URL` | Direct connection URL bypassing PgBouncer. Required for migrations on Neon. |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+
+### Crossmint
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CROSSMINT_SERVER_API_KEY` | — | Server-side API key (required) |
+| `CROSSMINT_API_URL` | `https://staging.crossmint.com` | Crossmint API base URL. Change to `https://www.crossmint.com` for production. |
+| `CROSSMINT_EVM_CHAIN_TYPE` | `base-sepolia` | EVM chain for payments. E.g. `base`, `ethereum-sepolia`, `polygon`. |
+| `CROSSMINT_WEBHOOK_SECRET` | `""` | Svix signing secret from Crossmint dashboard. Required to receive webhooks. |
+
+### LLM
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | — | OpenRouter API key (required) |
+| `LLM_MODEL` | `openai/gpt-4o` | Model string passed to OpenRouter. E.g. `anthropic/claude-3-5-sonnet`, `openai/gpt-4o-mini`. |
+
+### Service Selection
+
+| Variable | Default | Options | Description |
+|----------|---------|---------|-------------|
+| `PRODUCT_SERVICE` | `mock` | `mock` \| `scraping` | Product data source |
+| `CART_SERVICE` | `db` | `db` \| `onchain` | Cart backend |
+
+#### When `PRODUCT_SERVICE=scraping`
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCRAPING_SERVICE_URL` | `""` | Base URL of the `scraping/` microservice |
+| `SCRAPING_SERVICE_API_KEY` | `""` | API key for the `scraping/` service |
+
+#### When `CART_SERVICE=onchain`
+
+All three are **required** when onchain mode is active:
+
+| Variable | Description |
+|----------|-------------|
+| `SUI_CONTRACT_ADDRESS` | Deployed Move package ID (`0x...`) |
+| `SUI_CART_REGISTRY_ID` | Shared `CartRegistry` object ID created by `init()` |
+| `SUI_RELAYER_PRIVATE_KEY` | Bech32 Sui private key for the relayer wallet (`suiprivkey1...`) |
+
+### Sui Blockchain
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUI_RPC_URL` | `https://fullnode.testnet.sui.io:443` | Sui RPC endpoint |
+| `WALLET_ENCRYPTION_KEY` | `""` | 32-byte hex key for AES encryption of user Sui private keys |
+
+### Logging
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BETTERSTACK_SOURCE_TOKEN` | `""` | BetterStack source token. If empty, logs go to stdout only. |
+| `BETTERSTACK_INGESTING_HOST` | `""` | BetterStack ingesting hostname (e.g. `s2380734.eu-fsn-3.betterstackdata.com`) |
+
+### AI Memory (Optional)
+
+[MemWal](https://memwal.ai) provides verifiable AI memory. All three must be set to enable memory.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MEMWAL_SERVER_URL` | `https://relayer.memwal.ai` | MemWal relayer URL |
+| `MEMWAL_DELEGATE_KEY` | `""` | Delegate key from app.memwal.com |
+| `MEMWAL_ACCOUNT_ID` | `""` | Account ID from app.memwal.com |
+
+---
+
+## frontend/ (Next.js)
+
+Set these in `frontend/.env.local`.
+
+<TypeTable
+  type={{
+    NEXT_PUBLIC_CROSSMINT_API_KEY: {
+      description: "Crossmint client-side API key. Prefix: `pk_staging_` or `pk_production_`. Required — the app throws at startup if missing.",
+      type: "string",
+    },
+    NEXT_PUBLIC_API_URL: {
+      description: "Public fallback backend URL when BACKEND_URL is not set. Exposed to the browser.",
+      type: "string",
+    },
+    BACKEND_URL: {
+      description: "Server-side URL of the backend/ service. Used by the Next.js rewrite proxy. Takes priority over NEXT_PUBLIC_API_URL. Not exposed to the browser.",
+      type: "string",
+    },
+    NEXT_PUBLIC_DEBUG_CHAT_STREAM: {
+      description: 'Set to `"1"` to log raw SSE events and chat state transitions to the browser console. Development only — omit in production.',
+      type: "string",
+    },
+  }}
+/>
+
+The Next.js rewrite in `next.config.ts` forwards all `/api/:path*` requests to `BACKEND_URL` (or `NEXT_PUBLIC_API_URL`).
+
+---
+
+## scraping/ (NestJS)
+
+Copy `scraping/.env.example` to `scraping/.env` and fill in the values.
+
+### Core
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NODE_ENV` | `development` | Runtime environment |
+| `PORT` | `3000` | HTTP port the NestJS app listens on |
+
+### Database (PostgreSQL)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_URL` | `""` | Full PostgreSQL connection string. Takes precedence over individual `DB_*` vars. |
+| `DB_DATABASE` | `amazon_shopping_agent` | Database name (used when `DB_URL` is not set) |
+| `DB_SYNCHRONIZE` | `false` | Auto-sync TypeORM schema. Set to `false` in production — use migrations instead. |
+| `DB_MIGRATIONS_RUN` | `false` | Run pending migrations on startup |
+
+### Redis
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_HOST` | `localhost` | Redis hostname |
+| `REDIS_PORT` | `6379` | Redis port |
+| `REDIS_PASSWORD` | — | Redis AUTH password (optional) |
+
+### Apify (Scraping)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APIFY_API_TOKEN` | `""` | Apify personal API token. Required for `GET /api/search/realtime`. |
+
+### Sui
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUI_NETWORK` | `testnet` | Sui network name passed to `SuiGrpcClient` |
+| `SUI_RPC_URL` | `https://fullnode.testnet.sui.io:443` | Sui gRPC full-node URL |
+| `SUI_MERCHANT_ADDRESS` | `""` | Sui address that receives payments. Required — omitting disables the Sui guard. |
+| `SUI_PAYMENT_AMOUNT_MIST` | `1000000000` (1 SUI) | Minimum accepted payment in MIST |
+| `SUI_COIN_TYPE` | `0x2::sui::SUI` | Move coin type accepted for payments |
+| `SUI_REGISTRY_NAME` | — | Payment Kit registry name for nonce-based record lookup |
+
+### backend/ Webhook
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COMAGENT_BASE_URL` | `http://localhost:3001` | Base URL of the `backend/` service. Used for forwarding Sui deposit confirmations. |
+| `DEPOSIT_WEBHOOK_SECRET` | `""` | Shared secret sent in `X-Webhook-Secret` header on deposit webhook calls. |
+
+### Development
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TEST_SUI_PRIVATE_KEY` | — | Sui private key for local test scripts (e.g. `scripts/test-sui-payment.ts`). Never set in production. |

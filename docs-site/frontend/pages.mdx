@@ -1,0 +1,118 @@
+---
+title: Pages & Routing
+description: Route groups, layout hierarchy, and what each page renders.
+---
+
+
+The app uses the Next.js App Router. All page files live under `app/`.
+
+## Route Table
+
+| Route | Page file | Auth required |
+|---|---|---|
+| `/` | `app/page.tsx` | No |
+| `/login` | `app/(auth)/login/page.tsx` | No |
+| `/onboarding` | `app/(auth)/onboarding/page.tsx` | Yes (Crossmint session) |
+| `/app` | `app/(main)/app/page.tsx` | Yes (`AuthGuard`) |
+
+## Root Layout — `app/layout.tsx`
+
+Applies globally to every route. Sets up:
+
+- Google Fonts: `Inter` (`--font-sans`) and `Space_Grotesk` (`--font-display`)
+- `<Providers>` — wraps the tree with `CrossmintProvider`, `CrossmintAuthProvider`, `CrossmintWalletProvider`, and `QueryClientProvider`
+- Wallet creation is configured for `base-sepolia` chain with `email` signer type
+
+## Layout Groups
+
+### `(auth)` — unauthenticated
+
+No dedicated layout file. Pages are rendered directly inside the root layout. Both pages handle their own redirect logic after Crossmint auth resolves.
+
+### `(main)` — authenticated shell — `app/(main)/layout.tsx`
+
+Wraps `children` with:
+
+| Component | Source | Purpose |
+|---|---|---|
+| `AuthGuard` | `components/layout/AuthGuard` | Redirects to `/login` if not authenticated |
+| `AppHeader` | `components/layout/AppHeader` | Top navigation bar |
+| `TabNav` | `components/layout/TabNav` | Tab strip between header and main content |
+| `CartSidebar` | `components/ui/CartSidebar` | Slide-in cart panel (controlled by `cartStore.isOpen`) |
+| `OrdersSidebar` | `components/ui/OrdersSidebar` | Slide-in orders panel (controlled by `ordersStore.isOpen`) |
+| `CartHydrator` | `components/ui/CartHydrator` | On mount, calls `cartApi.hydrate()` to sync backend cart into `cartStore` |
+
+## Page Details
+
+### `/` — Landing Page
+
+`app/page.tsx` (server component)
+
+Renders a marketing page with six sections: hero, core workflow feature cards, chat/discovery, cart/review, checkout/approval, curated results, and order tracking. Two client components are used:
+
+- `LaunchButton` (`components/landing/LaunchButton`) — navigates to `/login` or `/app` depending on auth state
+- `DiscoveryProcessLog` (`components/landing/DiscoveryProcessLog`) — animated log display showing a live chat discovery sequence
+
+No API calls are made from this page.
+
+### `/login` — Login
+
+`app/(auth)/login/page.tsx` (client component)
+
+Supports two authentication methods via the Crossmint SDK (`useAuth`):
+
+- **Email OTP**: calls `crossmintAuth.sendEmailOtp(email)` → `crossmintAuth.confirmEmailOtp(email, emailId, otp)` → `crossmintAuth.handleRefreshAuthMaterial(oneTimeSecret)`
+- **Google OAuth**: opens a `PopupWindow`, listens for `authMaterialFromPopupCallback` via `ChildWindow`, then calls `handleRefreshAuthMaterial`
+
+After authentication resolves, `useOnboardingStatus` is fetched. The router pushes to `/app` if onboarding is complete, or `/onboarding` if not.
+
+### `/onboarding` — Onboarding
+
+`app/(auth)/onboarding/page.tsx` (client component)
+
+Three-step form validated with Zod:
+
+| Step | Fields | Mutation |
+|---|---|---|
+| 1 | `displayName` | `useOnboardingStep1` → `POST /api/onboarding/step1` |
+| 2 | Name + shipping address (street, city, zip, country) | `useOnboardingStep2` → `POST /api/onboarding/step2` |
+| 3 | Tops, bottoms, and footwear sizes | `useOnboardingStep3` → `POST /api/onboarding/step3` |
+
+On completion, the router replaces to `/app`. If `useOnboardingStatus` returns `completed: true` at mount, the page immediately redirects to `/app`.
+
+### `/app` — Chat Shell
+
+`app/(main)/app/page.tsx` (client component)
+
+On mount, reads `sessionId` from `sessionStore`. If a session ID is stored, calls `getChatSession(sid)` (`GET /api/sessions/:id`) to load message history. If the session is not found (different user or expired), resets to an empty state.
+
+Renders:
+
+| Component | Props (key) | Purpose |
+|---|---|---|
+| `ChatSidebar` | `activeSessionId`, `onSelectSession`, `onNewChat` | Session list, new-chat button |
+| `ChatShell` | `sessionId`, `initialMessages`, `onSessionCreated` | Message list, input bar, streaming |
+
+Session lifecycle events:
+- `onSessionCreated(newId)` — called by `useSSEChat` when the first message triggers `createChatSession`; persists to `sessionStore` and schedules a `useInvalidateSessions` after 2 s so the sidebar title appears
+- `onSelectSession(sid)` — loads history, increments `chatKey` to remount `ChatShell`, switches active session
+- `onNewChat` — clears `sessionStore`, remounts `ChatShell` with empty state
+
+## User Journey
+
+<Steps>
+### Landing
+User visits `/` and clicks "Open App" or "Start Shopping" (`LaunchButton`).
+
+### Login
+Redirected to `/login`. User authenticates with email OTP or Google via Crossmint SDK.
+
+### Onboarding
+First-time users are sent to `/onboarding` to complete 3 steps (profile, address, sizes).
+
+### Chat shell
+Lands on `/app`. Existing session is resumed from `sessionStore`; no session means an empty ready state.
+
+### Shopping
+User types a query; `useSSEChat` streams the response. Tool results render product cards inline. User opens product detail, adds to cart, or goes straight to checkout.
+</Steps>
