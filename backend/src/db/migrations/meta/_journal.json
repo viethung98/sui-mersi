@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1745200000000,
+      "tag": "0000_schema",
+      "breakpoints": false
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776477900000,
+      "tag": "0001_cart_items_soft_delete",
+      "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776477900000,
+      "tag": "0002_orders_payment_hash",
+      "breakpoints": false
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# Local development only.
+# For Railway production deploy: push to GitHub and Railway uses Dockerfile + railway.toml.
+# Add a Redis database plugin via the Railway dashboard — it injects REDIS_URL automatically.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+
+    restart: unless-stopped

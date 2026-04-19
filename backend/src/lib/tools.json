@@ -1,0 +1,201 @@
+{
+  "tools": [
+    {
+      "name": "searchProducts",
+      "description": "Search for products matching the user's requirements. Supports filtering by brand, category, and rating. Supports pagination with page and limit. ALWAYS call this tool when the user asks about products — do NOT respond with text-only answers about products.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "description": "Core product keywords only (e.g., 'running shoes', 'gaming laptop'). Keep it short. Do not include price or size constraints in the query text."
+        },
+        "brand": {
+          "type": "string",
+          "required": false,
+          "description": "Brand name filter. ONLY set if user explicitly mentions a brand. Include the brand in the query too — this is an additional server-side filter."
+        },
+        "category": {
+          "type": "string",
+          "required": false,
+          "description": "Product category filter. ONLY use if the user explicitly mentions a category. Do NOT infer — the query itself handles relevance. Categories must match exactly what Amazon uses (e.g., 'Wrist Watches', not 'Watches')."
+        },
+        "minRating": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum rating from 0 to 5. ONLY set this if the user explicitly asks for highly-rated products. Do NOT default to any value — most products have no rating data and will be filtered out."
+        },
+        "page": {
+          "type": "number",
+          "required": false,
+          "description": "Page number for pagination (1-based, default 1). Use when user asks for 'more results' or 'next page'."
+        },
+        "limit": {
+          "type": "number",
+          "required": false,
+          "description": "Number of results to return (default 20, max 20)."
+        }
+      },
+      "returns": {
+        "products": "Array of ProductCard objects with: id, name, image, images, price (in cents), currency, retailer, product_url, rating, brand, description, category",
+        "totalResults": "Total number of matching products",
+        "query": "The search query used"
+      },
+      "usage_rules": [
+        "ALWAYS call this tool when the user mentions wanting to see, find, or buy products",
+        "Keep query short and product-focused. Do not encode price or size constraints into the query text",
+        "ONLY include brand, category, or minRating when the user explicitly asked for them",
+        "If search returns 0 results, retry with FEWER filters (remove brand, category, minRating)",
+        "Prices are returned in CENTS — divide by 100 for display (e.g., 14999 → $149.99)",
+        "Default limit is 20",
+        "Use page parameter when user asks for 'more', 'next', or 'show me more'"
+      ]
+    },
+    {
+      "name": "getProductDetails",
+      "description": "Get detailed information about a specific product by its ID (ASIN). Use when the user wants more details about a product from search results.",
+      "parameters": {
+        "productId": {
+          "type": "string",
+          "required": true,
+          "description": "Product ID (ASIN) from a previous searchProducts result"
+        }
+      },
+      "returns": {
+        "id": "Product ID",
+        "name": "Product name",
+        "image": "Primary image URL",
+        "images": "Array of all image URLs",
+        "price": "Price in cents",
+        "currency": "Currency code (USD)",
+        "retailer": "Retailer name",
+        "product_url": "Link to product page",
+        "rating": "Product rating (0-5)",
+        "brand": "Brand name",
+        "fullDescription": "Full product description",
+        "specifications": "Key-value pairs of product specs",
+        "availability": "in_stock | limited | out_of_stock"
+      },
+      "usage_rules": [
+        "Only call after searchProducts — you need a valid product ID",
+        "Use when user says 'tell me more about...', 'details on...', or clicks a product",
+        "Present specifications in a readable format"
+      ]
+    },
+    {
+      "name": "viewCart",
+      "description": "View the current contents of the user's shopping cart. Returns all items with prices and a total.",
+      "parameters": {},
+      "returns": {
+        "items": "Array of cart items with id, productId, productName, price (cents), priceFormatted, image, size, color, productUrl, retailer",
+        "total": "Total cart value in cents",
+        "totalFormatted": "Total as formatted string (e.g. '$149.99')",
+        "itemCount": "Number of items in cart"
+      },
+      "usage_rules": [
+        "Call when user asks what's in their cart, or before checkout",
+        "Use 'id' field as 'itemId' for removeFromCart and 'cartItemId' for initiateCheckout"
+      ]
+    },
+    {
+      "name": "addToCart",
+      "description": "Add a product to the user's shopping cart. ONLY call when the user explicitly says they want to add something to their cart.",
+      "parameters": {
+        "productId": {
+          "type": "string",
+          "required": true,
+          "description": "Product ID (ASIN) from searchProducts result"
+        },
+        "productName": {
+          "type": "string",
+          "required": true,
+          "description": "Full product name from searchProducts result"
+        },
+        "price": {
+          "type": "number",
+          "required": true,
+          "description": "Price in cents from searchProducts result (e.g., 14999)"
+        },
+        "image": {
+          "type": "string",
+          "required": true,
+          "description": "Primary image URL from searchProducts result"
+        },
+        "size": {
+          "type": "string",
+          "required": false,
+          "description": "Selected size. Ask the user before adding if the product has sizes. Use 'Default' if not applicable."
+        },
+        "color": {
+          "type": "string",
+          "required": false,
+          "description": "Selected color. Ask the user before adding if the product has color options. Use 'Default' if not applicable."
+        },
+        "productUrl": {
+          "type": "string",
+          "required": true,
+          "description": "Product page URL from searchProducts result"
+        },
+        "retailer": {
+          "type": "string",
+          "required": true,
+          "description": "Retailer name (e.g., 'Amazon')"
+        }
+      },
+      "returns": {
+        "success": "true on success",
+        "item": "Added cart item with id, productName, priceFormatted",
+        "message": "Confirmation message"
+      },
+      "usage_rules": [
+        "ONLY call after the user explicitly asks to add an item to cart",
+        "You MUST have product data from a prior searchProducts or getProductDetails call",
+        "If the product has sizes (e.g., clothing, shoes), ask the user which size before adding",
+        "If the product has colors, ask the user which color before adding",
+        "Max 10 items allowed in cart"
+      ]
+    },
+    {
+      "name": "removeFromCart",
+      "description": "Remove a specific item from the cart. Requires the cart item UUID from viewCart.",
+      "parameters": {
+        "itemId": {
+          "type": "string",
+          "required": true,
+          "description": "Cart item UUID from viewCart 'id' field"
+        }
+      },
+      "returns": {
+        "success": "true on success",
+        "message": "Confirmation message"
+      },
+      "usage_rules": [
+        "Call viewCart first to get the itemId",
+        "Only call when user explicitly asks to remove an item"
+      ]
+    },
+    {
+      "name": "initiateCheckout",
+      "description": "Start checkout for one item in the cart. The user must have a wallet and shipping address set up first.",
+      "parameters": {
+        "cartItemId": {
+          "type": "string",
+          "required": true,
+          "description": "Cart item UUID from viewCart 'id' field to checkout"
+        }
+      },
+      "returns": {
+        "orderId": "Internal order UUID",
+        "crossmintOrderId": "Crossmint order ID",
+        "phase": "Order phase (awaiting-approval)",
+        "transactionId": "Wallet transaction ID",
+        "walletAddress": "User's wallet address"
+      },
+      "usage_rules": [
+        "Call viewCart first to get the cartItemId",
+        "Only call when user explicitly says they want to checkout or buy",
+        "If checkout fails with missing wallet or address, tell the user to complete their profile first",
+        "If checkout fails with insufficient funds, tell the user to add funds to their wallet"
+      ]
+    }
+  ]
+}

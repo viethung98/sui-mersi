@@ -1,0 +1,9 @@
+{
+  "network": "testnet",
+  "deployedAt": "2026-04-18T05:39:17Z",
+  "deployedBy": "0xb5a4b0fbbd3b57d06c4c040a23a70182eb0cd7770dee6d327cbfae56fb4bcafa",
+  "digest": "HtfmiGNU3PdBwCLR8r6Q5CaYwBfyWeEdePUzQewnF2nG",
+  "status": "success",
+  "packageId": "0x0fc43e268776d6c141694d0f466dfdd9099acd177a276e9a87b1519a7b9a76d3",
+  "cartRegistryId": "0x14b4f206b8147c0ac809760fe61ba0301168531e8718080c5b8e2a652db28c53"
+}
