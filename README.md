@@ -2,7 +2,7 @@
 
 **Mersi** is an AI-powered shopping agent that lets users discover products via natural language chat, add items to cart, and complete purchases through a blockchain-backed checkout flow.
 
-**Docs:** [mersi-docs.dev.cmdocs.app](https://mersi-docs.dev.cmdocs.app/)
+**Docs:** [mersi-docs.dev.cmdocs.app](https://mersi-docs.dev.cmdocs.app/getting-started)
 
 ## Architecture Overview
 
