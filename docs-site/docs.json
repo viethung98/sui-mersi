@@ -2,6 +2,7 @@
   "$schema": "https://cmdocs.sh/schema/docs.json",
   "name": "Mersi",
   "description": "AI Shopping Agent on Sui — conversational commerce powered by Sui Payment Kit and MemWal",
+  "baseUrl": "mersi-docs.dev.cmdocs.app",
   "navbar": {
     "title": "Mersi",
     "links": [
